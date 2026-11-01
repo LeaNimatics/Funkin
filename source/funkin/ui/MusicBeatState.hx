@@ -1,5 +1,6 @@
 package funkin.ui;
 
+import funkin.util.FlxStateUtil;
 import funkin.modding.IScriptedClass.IEventHandler;
 import funkin.ui.mainmenu.MainMenuState;
 import flixel.FlxSubState;
@@ -69,7 +70,8 @@ class MusicBeatState extends FlxTransitionableState implements IEventHandler
 
   override function finishTransIn()
   {
-    super.finishTransIn();
+    if (FlxStateUtil.hasSubState(this)) FlxStateUtil.closeTransitionAtTop(this);
+    else super.finishTransIn();
 
     default_trans_isTransitioning = false;
   }
@@ -199,16 +201,6 @@ class MusicBeatState extends FlxTransitionableState implements IEventHandler
 
     Conductor.beatHit.remove(this.beatHit);
     Conductor.stepHit.remove(this.stepHit);
-  }
-
-  function handleFunctionControls():Void
-  {
-    // Emergency exit button.
-    if (FlxG.keys.justPressed.F4)
-    {
-      FlxG.switchState(() -> new MainMenuState());
-      WindowUtil.setWindowTitle('Friday Night Funkin\'');
-    }
   }
 
   override function update(elapsed:Float):Void
@@ -375,6 +367,21 @@ class MusicBeatState extends FlxTransitionableState implements IEventHandler
 
     if (event.eventCanceled)
     {
+      event.finish();
+      return;
+    }
+
+    if (FlxStateUtil.cancelTransitionAtTop(this))
+    {
+      FlxTransitionableState.skipNextTransIn = false;
+      FlxTransitionableState.skipNextTransOut = false;
+    }
+
+    // Make sure that the game opens substates at the top of the stack.
+    // Events will be dispatched by the substate.
+    if (FlxStateUtil.hasSubState(this, true))
+    {
+      FlxStateUtil.openSubStateAtTop(targetSubState, this);
       event.finish();
       return;
     }

@@ -15,6 +15,7 @@ import funkin.data.dialogue.ConversationRegistry;
 import funkin.data.dialogue.DialogueBoxRegistry;
 import funkin.data.dialogue.SpeakerRegistry;
 import funkin.data.freeplay.album.AlbumRegistry;
+import funkin.util.MemoryUtil;
 import funkin.data.freeplay.player.PlayerRegistry;
 import funkin.data.freeplay.style.FreeplayStyleRegistry;
 import funkin.data.notestyle.NoteStyleRegistry;
@@ -26,13 +27,13 @@ import funkin.data.event.SongEventRegistry;
 import funkin.data.stage.StageRegistry;
 import funkin.data.story.level.LevelRegistry;
 import funkin.modding.module.ModuleHandler;
-import funkin.data.character.CharacterData.CharacterDataParser;
+import funkin.data.character.CharacterRegistry;
 import funkin.play.notes.notekind.NoteKindManager;
 import funkin.play.PlayStatePlaylist;
 import funkin.ui.debug.charting.ChartEditorState;
 import funkin.ui.debug.stageeditor.StageEditorState;
 import funkin.ui.title.TitleState;
-import funkin.ui.transition.LoadingState;
+import funkin.ui.transition.Transition;
 import funkin.util.CLIUtil;
 import funkin.util.CLIUtil.CLIParams;
 import funkin.util.macro.MacroUtil;
@@ -65,13 +66,21 @@ class InitState extends FlxState
   @:noCompletion
   static var _coreInitialized:Bool = false;
 
-  public static var customTitleState:Null<FlxState> = null;
+  public static var customTitleState:Null<flixel.util.typeLimit.NextState> = null;
+  public static var customTitleStateAssetsQuery:Null<(funkin.assets.Assets.AssetType) -> Array<funkin.assets.Paths.AssetPath>> = null;
 
   /**
    * Perform a bunch of game setup, then immediately transition to the title screen.
    */
   override public function create():Void
   {
+    // We probably just got out of the preloader state.
+    // That does a bunch of work, so we should do some garbage collection.
+    // This will probably make the game stutter a frame or two, but it cleans up a lot of memory.
+    #if cpp
+    funkin.util.MemoryUtil.compact();
+    #end
+
     // Setup a bunch of important Flixel stuff.
     setupShit();
 
@@ -138,11 +147,6 @@ class InitState extends FlxState
       funkin.external.android.CallbackUtil.init();
       #end
 
-      #if ios
-      // Setup Audio session
-      funkin.external.apple.AudioSession.initialize();
-      #end
-
       #if mobile
       // Setup Mobile FNF Loader Provider.
       funkin.mobile.util.FNFLoaderProvider.init();
@@ -178,59 +182,6 @@ class InitState extends FlxState
       FlxG.fixedTimestep = false;
 
       setupFlixelDebug();
-
-      //
-      // FLIXEL TRANSITIONS
-      //
-
-      // Diamond Transition
-      var diamond:FlxGraphic = FlxGraphic.fromClass(GraphicTransTileDiamond);
-      diamond.persist = true;
-      diamond.destroyOnNoUse = false;
-
-      // NOTE: tileData is ignored if TransitionData.type is FADE instead of TILES.
-      var tileData:TransitionTileData = {
-        asset: diamond,
-        width: 32,
-        height: 32
-      };
-
-      FlxTransitionableState.defaultTransIn = new TransitionData(
-        FADE,
-        FlxColor.BLACK,
-        1,
-        FlxPoint.weak(0, -1),
-        tileData,
-        FlxRect.weak(-200, -200, FlxG.width * 1.4, FlxG.height * 1.4)
-      );
-      FlxTransitionableState.defaultTransOut = new TransitionData(
-        FADE,
-        FlxColor.BLACK,
-        0.7,
-        FlxPoint.weak(0, 1),
-        tileData,
-        FlxRect.weak(-200, -200, FlxG.width * 1.4, FlxG.height * 1.4)
-      );
-
-      FlxG.signals.gameResized.add(function(width:Int, height:Int)
-      {
-        FlxTransitionableState.defaultTransIn = new TransitionData(
-          FADE,
-          FlxColor.BLACK,
-          1,
-          FlxPoint.weak(0, -1),
-          tileData,
-          FlxRect.weak(-200, -200, FlxG.width * 1.4, FlxG.height * 1.4)
-        );
-        FlxTransitionableState.defaultTransOut = new TransitionData(
-          FADE,
-          FlxColor.BLACK,
-          0.7,
-          FlxPoint.weak(0, 1),
-          tileData,
-          FlxRect.weak(-200, -200, FlxG.width * 1.4, FlxG.height * 1.4)
-        );
-      });
 
       // SDL for some reason enables VSync on focus lost/gained in Android
       // Since we don't really need VSync on Android we're gonna forcefully disable it on these signals for now
@@ -378,31 +329,43 @@ class InitState extends FlxState
     startLevel(defineLevel(), defineDifficulty());
     #elseif FREEPLAY
     // -DFREEPLAY
-    FlxG.switchState(() -> new funkin.ui.freeplay.FreeplayState());
+    Transition.switchState(() -> new funkin.ui.freeplay.FreeplayState(), {
+      assetQuery: funkin.ui.freeplay.FreeplayState.queryAssets,
+      transition: None
+    });
     #elseif DIALOGUE
     // -DDIALOGUE
-    FlxG.switchState(() -> new funkin.ui.debug.dialogue.ConversationDebugState());
+    Transition.switchState(() -> new funkin.ui.debug.dialogue.ConversationDebugState(), {
+      assetQuery: funkin.ui.debug.dialogue.ConversationDebugState.queryAssets,
+      transition: None
+    });
     #elseif ANIMATE
     // -DANIMATE
-    FlxG.switchState(() -> new funkin.ui.debug.anim.FlxAnimateTest());
-    #elseif WAVEFORM
-    // -DWAVEFORM
-    FlxG.switchState(() -> new funkin.ui.debug.WaveformTestState());
+    Transition.switchState(() -> new funkin.ui.debug.anim.FlxAnimateTest(), {
+      assetQuery: funkin.ui.debug.anim.FlxAnimateTest.queryAssets,
+      transition: None
+    });
     #elseif CHARTING
     // -DCHARTING
-    FlxG.switchState(() -> new funkin.ui.debug.charting.ChartEditorState());
+    Transition.switchState(() -> new funkin.ui.debug.charting.ChartEditorState(), {
+      assetQuery: funkin.ui.debug.charting.ChartEditorState.queryAssets,
+      transition: None
+    });
     #elseif STAGING
     // -DSTAGING
-    FlxG.switchState(() -> new funkin.ui.debug.stageeditor.StageEditorState());
-    #elseif STAGEBUILD
-    // -DSTAGEBUILD
-    FlxG.switchState(() -> new funkin.ui.debug.stage.StageBuilderState());
+    Transition.switchState(() -> new funkin.ui.debug.stageeditor.StageEditorState(), {
+      assetQuery: funkin.ui.debug.stageeditor.StageEditorState.queryAssets,
+      transition: None
+    });
     #elseif EYESOFGOD
     // -DEYESOFGOD
-    FlxG.switchState(() -> new funkin.ui.debug.cameraeditor.CameraEditorState());
+    Transition.switchState(() -> new funkin.ui.debug.cameraeditor.CameraEditorState(), {
+      assetQuery: funkin.ui.debug.cameraeditor.CameraEditorState.queryAssets,
+      transition: None
+    });
     #elseif RESULTS
     // -DRESULTS
-    FlxG.switchState(() -> new funkin.play.ResultState({
+    var params = {
       storyMode: true,
       title: 'Cum Song Erect by Kawai Sprite',
       songId: 'cum',
@@ -429,13 +392,23 @@ class InitState extends FlxState
         // 210 total notes = 91% = EXCELLENT
         // 190 total notes = PERFECT
       },
-    }));
+    };
+    Transition.switchState(() -> new funkin.play.ResultState(params), {
+      assetQuery: funkin.play.ResultState.queryAssets(_, params),
+      transition: None
+    });
     #elseif ANIMDEBUG
     // -DANIMDEBUG
-    FlxG.switchState(() -> new funkin.ui.debug.anim.DebugBoundingState());
+    Transition.switchState(() -> new funkin.ui.debug.anim.DebugBoundingState(), {
+      assetQuery: Transition.NO_ASSETS,
+      transition: None
+    });
     #elseif LATENCY
     // -DLATENCY
-    FlxG.switchState(() -> new funkin.LatencyState());
+    Transition.switchState(() -> new funkin.LatencyState(), {
+      assetQuery: Transition.NO_ASSETS,
+      transition: None
+    });
     #else
     startGameNormally();
     #end
@@ -443,8 +416,8 @@ class InitState extends FlxState
 
   public static function resetTitleState():Void
   {
-    if (customTitleState != null) customTitleState.destroy();
     customTitleState = null;
+    customTitleStateAssetsQuery = null;
   }
 
   /**
@@ -469,7 +442,10 @@ class InitState extends FlxState
 
     if (funkin.modding.install.OneClickInstallHandler.stashLaunchLink(params.oneClickUrl) || funkin.modding.install.OneClickInstallHandler.hasPendingLink())
     {
-      FlxG.switchState(() -> new funkin.ui.modmenu.ModMenuState());
+      Transition.switchState(() -> new funkin.ui.modmenu.ModMenuState(), {
+        assetQuery: funkin.ui.modmenu.ModMenuState.queryAssets,
+        transition: BlackScreen(None, Fade(South))
+      });
       return;
     }
     #end
@@ -477,39 +453,67 @@ class InitState extends FlxState
     if (params.chart.shouldLoadChart)
     {
       #if FEATURE_CHART_EDITOR
-      FlxG.switchState(() -> new ChartEditorState({
+      var params = {
         loadFromPath: params.chart.chartPath,
-      }));
+      };
+      Transition.switchState(() -> new ChartEditorState(params), {
+        assetQuery: ChartEditorState.queryAssets.bind(_, params),
+        transition: BlackScreen(None, Fade(South))
+      });
       #else
-      FlxG.switchState(() -> new TitleState());
+      Transition.switchState(() -> new TitleState(), {
+        assetQuery: TitleState.queryAssets,
+        transition: None
+      });
       #end
     }
     else if (params.camera.shouldLoadChart)
     {
       #if FEATURE_CAMERA_EDITOR
-      FlxG.switchState(() -> new CameraEditorState({
+      var params = {
         loadFromPath: params.camera.chartPath,
-      }));
+      };
+      Transition.switchState(() -> new CameraEditorState(params), {
+        assetQuery: Transition.NO_ASSETS, // CameraEditorState.queryAssets.bind(_, params),
+        transition: BlackScreen(None, Fade(South))
+      });
       #else
-      FlxG.switchState(() -> new TitleState());
+      Transition.switchState(() -> new TitleState(), {
+        assetQuery: TitleState.queryAssets,
+        transition: None
+      });
       #end
     }
     else if (params.stage.shouldLoadStage)
     {
       #if FEATURE_STAGE_EDITOR
-      FlxG.switchState(() -> new StageEditorState({
+      var params = {
         fnfsTargetPath: params.stage.stagePath,
-      }));
+      };
+
+      Transition.switchState(() -> new StageEditorState(params), {
+        assetQuery: Transition.NO_ASSETS,
+        transition: BlackScreen(None, Fade(South))
+      });
       #else
-      FlxG.switchState(() -> new TitleState());
+      Transition.switchState(() -> new TitleState(), {
+        assetQuery: TitleState.queryAssets,
+        transition: None
+      });
       #end
     }
     else if (params.song.shouldLoadSong && params.song.songPath != null)
     {
       #if sys
-      FlxG.switchState(() -> new ChartPlaytestMenu(params.song.songPath));
+      Transition.switchState(() -> new ChartPlaytestMenu(params.song.songPath), {
+        assetQuery: Transition.NO_ASSETS,
+        transition: BlackScreen(None, Fade(South))
+      });
       #else
-      FlxG.switchState(() -> new TitleState());
+      Transition.switchState(() -> new TitleState(), {
+        assetQuery: TitleState.queryAssets,
+        transition: None
+      });
       #end
     }
     else
@@ -526,7 +530,10 @@ class InitState extends FlxState
           FlxG.sound.music = null;
         }
 
-        FlxG.switchState(() -> new ChartPlaytestMenu(fnfcFile));
+        Transition.switchState(() -> new ChartPlaytestMenu(fnfcFile), {
+          assetQuery: Transition.NO_ASSETS,
+          transition: BlackScreen(None, Fade(South))
+        });
       });
 
       final fnfcFile = funkin.mobile.util.FNFLoaderProvider.queryFNFC();
@@ -535,25 +542,27 @@ class InitState extends FlxState
       {
         trace('launching FNFC from $fnfcFile');
 
-        FlxG.switchState(() -> new ChartPlaytestMenu(fnfcFile));
+        Transition.switchState(() -> new ChartPlaytestMenu(fnfcFile), {
+          assetQuery: Transition.NO_ASSETS,
+          transition: BlackScreen(None, Fade(South))
+        });
+
+        return;
       }
-      else if (customTitleState != null)
-      {
-        FlxG.switchState(() -> customTitleState);
-      }
-      else
-      {
-        FlxG.switchState(() -> new TitleState());
-      }
-      #else
+      #end
       if (customTitleState != null)
       {
-        FlxG.switchState(() -> customTitleState);
+        Transition.switchState(customTitleState, {
+          assetQuery: customTitleStateAssetsQuery,
+          transition: BlackScreen(Fade(North), Fade(South))
+        });
         return;
       }
 
-      FlxG.switchState(() -> new TitleState());
-      #end
+      Transition.switchState(() -> new TitleState(), {
+        assetQuery: TitleState.queryAssets,
+        transition: BlackScreen(Fade(North), Fade(South))
+      });
     }
   }
 
@@ -596,10 +605,12 @@ class InitState extends FlxState
     }
 
     @:nullSafety(Off) // Cannot unify?
-    LoadingState.loadPlayState({
+    funkin.ui.transition.Transition.openPlayState({
       targetSong: songData,
-      targetDifficulty: difficultyId,
-    });
+      targetDifficulty: difficultyId
+    }, {
+      transition: None,
+    }, false);
   }
 
   /**
@@ -638,10 +649,12 @@ class InitState extends FlxState
     }
 
     @:nullSafety(Off)
-    LoadingState.loadPlayState({
+    funkin.ui.transition.Transition.openPlayState({
       targetSong: targetSong,
-      targetDifficulty: difficultyId,
-    });
+      targetDifficulty: difficultyId
+    }, {
+      transition: None,
+    }, false);
   }
 
   @:nullSafety(Off) // Meh, remove when flixel.system.debug.log.LogStyle is null safe

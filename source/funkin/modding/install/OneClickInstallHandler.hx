@@ -1,6 +1,7 @@
 package funkin.modding.install;
 
 import flixel.FlxG;
+import funkin.ui.transition.Transition;
 import funkin.modding.install.ModInstaller.OneClickRequest;
 import funkin.util.protocol.OneClickBridge;
 import funkin.util.protocol.ProtocolRegistrar;
@@ -188,13 +189,16 @@ class OneClickInstallHandler
       if (awaitingMenu || !canInterrupt()) return;
 
       awaitingMenu = true;
-      FlxG.switchState(() -> new funkin.ui.modmenu.ModMenuState());
+      Transition.switchState(() -> new funkin.ui.modmenu.ModMenuState(), {
+        assetQuery: funkin.ui.modmenu.ModMenuState.queryAssets,
+        transition: BlackScreen(None, Fade(South))
+      });
       return;
     }
 
     awaitingMenu = false;
 
-    if (!menu.isInstalling())
+    if (!menu.installer.isInstalling())
     {
       final request:Null<OneClickRequest> = queue.shift();
       if (request != null) menu.beginOneClickInstall(request);

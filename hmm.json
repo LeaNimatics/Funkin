@@ -3,7 +3,7 @@
     {
       "name": "FlxPartialSound",
       "type": "git",
-      "ref": "ba1274145d5636d1aad53c7188c525bd39a99ee2",
+      "ref": "cf4d3d37e309c4594813d7cc06aec5a800cdb090",
       "url": "https://github.com/FunkinCrew/FlxPartialSound"
     },
     {
@@ -61,19 +61,19 @@
     {
       "name": "flixel",
       "type": "git",
-      "ref": "f21eaef2c3e470dcee45798ec4402114829f8455",
+      "ref": "9784919e02435f2bc4790d615e4c211652975f29",
       "url": "https://github.com/FunkinCrew/flixel"
     },
     {
       "name": "flixel-addons",
       "type": "git",
-      "ref": "e038c227c0b48bd23a3ffa0f554e59b9c4c4bf2f",
+      "ref": "7df068dbecefa40328d60a1849126a8318b3c80e",
       "url": "https://github.com/FunkinCrew/flixel-addons"
     },
     {
       "name": "flixel-animate",
       "type": "git",
-      "ref": "5d8c335457e69a154bcd06392990a377b9c6f806",
+      "ref": "a6debe67d1db49e5807ef04574e3384c2b6e41aa",
       "url": "https://github.com/FunkinCrew/flixel-animate"
     },
     {
@@ -89,7 +89,7 @@
     {
       "name": "funkin.vis",
       "type": "git",
-      "ref": "f99adae2e1aa18ef1b987ca97e49d1b3c6ee9b9f",
+      "ref": "9b22f76445eb4dc67fae411841c1644f7b4af044",
       "url": "https://github.com/FunkinCrew/funkVis"
     },
     {
@@ -130,7 +130,7 @@
     {
       "name": "hxcpp",
       "type": "git",
-      "ref": "a8b5f73b217132cdb595e515bb10332959a1ed39",
+      "ref": "d5bda40ac13f2823fe1bdcb5476e0eb027f1e7e9",
       "url": "https://github.com/FunkinCrew/hxcpp"
     },
     {
@@ -164,7 +164,7 @@
     {
       "name": "hxvlc",
       "type": "git",
-      "ref": "debbf2bb23ef572920ef264df87c773e0b96043b",
+      "ref": "458d07d89aa22a01282c3d79d12e66702fca70d3",
       "url": "https://github.com/MAJigsaw77/hxvlc"
     },
     {
@@ -187,7 +187,7 @@
     {
       "name": "lime",
       "type": "git",
-      "ref": "8888c14061aa55243da7fb6bdab21636bb32b248",
+      "ref": "1a850852071edc3ba4c6044e601495ee1f47057c",
       "url": "https://github.com/FunkinCrew/lime"
     },
     {
@@ -199,13 +199,13 @@
     {
       "name": "openfl",
       "type": "git",
-      "ref": "05b4d5162741c823dab7b97899e38db09e54d775",
+      "ref": "1020acd48899d2c70ad3ba2ff883c2b8a17baa08",
       "url": "https://github.com/FunkinCrew/openfl"
     },
     {
       "name": "polymod",
       "type": "git",
-      "ref": "7c2a5626b62290c800795f97b5a28d12ea118ad5",
+      "ref": "391d9867ac0db7d4fb03e345eed0dfc38b2149bd",
       "url": "https://github.com/FunkinCrew/polymod"
     },
     {

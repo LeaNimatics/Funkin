@@ -21,7 +21,7 @@ import funkin.Highscore.Tallies;
 import funkin.api.newgrounds.Events;
 import funkin.audio.FunkinSound;
 import funkin.audio.VoicesGroup;
-import funkin.data.character.CharacterData.CharacterDataParser;
+import funkin.data.character.CharacterRegistry;
 import funkin.data.dialogue.ConversationRegistry;
 import funkin.data.event.SongEventRegistry;
 import funkin.data.notestyle.NoteStyleRegistry;
@@ -57,9 +57,8 @@ import funkin.play.stage.Stage;
 import funkin.save.Save;
 import funkin.ui.FullScreenScaleMode;
 import funkin.ui.MusicBeatSubState;
-import funkin.ui.debug.stage.StageOffsetSubState;
 import funkin.ui.mainmenu.MainMenuState;
-import funkin.ui.transition.LoadingState;
+import funkin.ui.transition.Transition;
 import funkin.ui.transition.preload.hotreload.HotReloadState.HotReloadStateParams;
 import funkin.util.GRhythmUtil;
 import funkin.util.HapticUtil;
@@ -90,6 +89,8 @@ import funkin.api.discord.DiscordClient;
 import funkin.api.newgrounds.Medals;
 import funkin.api.newgrounds.Leaderboards;
 #end
+import funkin.assets.Paths;
+import funkin.assets.Assets;
 
 /**
  * Parameters used to initialize the PlayState.
@@ -696,6 +697,18 @@ class PlayState extends MusicBeatSubState
     return currentSong.getDifficulty(currentDifficulty, currentVariation);
   }
 
+  public function resolveStickerPackId():String
+  {
+    var chartStickerPack:Null<String> = currentChart?.stickerPack;
+    if (chartStickerPack != null && chartStickerPack != '') return chartStickerPack;
+
+    var playerCharacterId:Null<String> = funkin.data.freeplay.player.PlayerRegistry.instance.getCharacterOwnerId(currentChart?.characters?.player);
+    var playerCharacter:Null<funkin.ui.freeplay.charselect.PlayableCharacter> = funkin.data.freeplay.player.PlayerRegistry.instance.fetchEntry(
+      playerCharacterId ?? Constants.DEFAULT_CHARACTER
+    );
+    return playerCharacter?.getStickerPackID() ?? Constants.DEFAULT_STICKER_PACK;
+  }
+
   /**
    * The internal ID of the currently active Stage.
    * Used to retrieve the data required to build the `currentStage`.
@@ -741,6 +754,123 @@ class PlayState extends MusicBeatSubState
   var skipEndingTransition:Bool = false;
 
   static final BACKGROUND_COLOR:FlxColor = FlxColor.BLACK;
+
+  /**
+   * Return a list of all AssetPaths that this state depends on to load.
+   * This gets called AFTER the chart gets loaded manually.
+   * @param type The type of AssetPath to return a list of paths for.
+   * @param params The parameters to use when constructing the Play State.
+   * @return The assets that the loading screen should cache.
+   */
+  public static function queryAssets(type:funkin.assets.Assets.AssetType,
+    params:PlayStateParams):Array<funkin.assets.Paths.AssetPath>
+  {
+    var results:Array<funkin.assets.Paths.AssetPath> = [];
+
+    var minimalMode:Bool = params.minimalMode ?? false;
+
+    // Fetch song assets (including chart data and audio).
+    var targetDifficulty:Null<SongDifficulty> = params.targetSong.getDifficulty(params.targetDifficulty, params.targetVariation);
+    if (targetDifficulty == null)
+    {
+      throw 'Could not fetch difficulty while loading: ${params.targetSong.id}(${params.targetDifficulty}-${params?.targetVariation ?? 'default'})';
+    }
+
+    // Retrieve assets needed by the song.
+    // Includes chart JSON files, note style assets, and assets required by the song script.
+    trace('[LOADING] Querying ${type} assets for PlayState (song ID: ${params.targetSong.id})');
+    results.append(targetDifficulty.queryAssets(type, params.targetInstrumental));
+
+    if (!minimalMode)
+    {
+      var stickerPackId:Null<String> = targetDifficulty?.stickerPack /*?? Constants.DEFAULT_STICKER_PACK*/;
+
+      if (stickerPackId == null)
+      {
+        var playerCharacterId:Null<String> = funkin.data.freeplay.player.PlayerRegistry.instance.getCharacterOwnerId(targetDifficulty?.characters.player);
+        var playerCharacter:Null<funkin.ui.freeplay.charselect.PlayableCharacter> = funkin.data.freeplay.player.PlayerRegistry.instance.fetchEntry(
+          playerCharacterId ?? Constants.DEFAULT_CHARACTER
+        );
+        if (playerCharacter != null)
+        {
+          stickerPackId = playerCharacter.getStickerPackID();
+        }
+      }
+      // If stickerPackId is null.
+      stickerPackId ??= Constants.DEFAULT_STICKER_PACK;
+
+      // Fetch sticker transition assets.
+      var stickerAssets:Array<AssetPath> = funkin.ui.transition.loading.StickerLoadingState.queryAssets(type, stickerPackId);
+      results.append(stickerAssets);
+
+      // Fetch stage assets.
+      results.append(StageRegistry.instance.queryAssets(type, targetDifficulty.stage, {
+      }));
+
+      // Fetch character assets (including graphics).
+      var id = targetDifficulty?.characters?.girlfriend;
+      if (id != null) results.append(CharacterRegistry.instance.queryAssets(type, id));
+      id = targetDifficulty?.characters?.opponent;
+      if (id != null) results.append(CharacterRegistry.instance.queryAssets(type, id));
+      id = targetDifficulty?.characters?.player;
+      if (id != null) results.append(CharacterRegistry.instance.queryAssets(type, id));
+
+      var playerCharacterId:Null<String> = funkin.data.freeplay.player.PlayerRegistry.instance.getCharacterOwnerId(targetDifficulty?.characters?.player);
+      results.append(GameOverSubState.queryAssets(type, playerCharacterId ?? Constants.DEFAULT_CHARACTER));
+
+      switch (type)
+      {
+        case SOUND:
+          // Cache all pause music variants, including character-specific musicSuffix variants.
+          results.append(Assets.listInPath('ui/pause/music', SOUND));
+          results.push(Paths.sound('gameplay/general/sounds/miss-note-1'));
+          results.push(Paths.sound('gameplay/general/sounds/miss-note-2'));
+          results.push(Paths.sound('gameplay/general/sounds/miss-note-3'));
+        case JSON:
+          results.append(Assets.listInPath('ui/pause/music', JSON));
+        default:
+          // Nothing
+      }
+    }
+    else
+    {
+      switch (type)
+      {
+        case IMAGE:
+          // Background image for minimal mode!
+          results.push(Paths.image('ui/main-menu/menu-desat'));
+        case SOUND:
+          results.append(Assets.listInPath('ui/pause/music', SOUND));
+          results.push(Paths.sound('gameplay/general/sounds/miss-note-1'));
+          results.push(Paths.sound('gameplay/general/sounds/miss-note-2'));
+          results.push(Paths.sound('gameplay/general/sounds/miss-note-3'));
+        case JSON:
+          // Cache metadata for all pause music variants as well.
+          results.append(Assets.listInPath('ui/pause/music', JSON));
+        default:
+          // Nothing
+      }
+    }
+
+    results.append(GitarooPause.queryAssets(type));
+
+    // Fetch the UI assets
+    var uiAssets:Array<funkin.assets.Paths.AssetPath> = [];
+    switch (type)
+    {
+      case IMAGE:
+        uiAssets.push(Paths.image('gameplay/general/health-bar'));
+        uiAssets.push(Paths.image('gameplay/characters/bf-old/icon-bf-old'));
+        uiAssets.push(Paths.image('gameplay/characters/face/icon-face'));
+      case SHADER:
+        uiAssets.push(Paths.frag('ui/shaders/hsv'));
+      default:
+        // Nothing
+    }
+    results.append(uiAssets.filterNull());
+
+    return results;
+  }
 
   /**
    * Instantiate a new PlayState.
@@ -814,7 +944,7 @@ class PlayState extends MusicBeatSubState
     // Healthbar
     healthBarBG = FunkinSprite.create(0, 0, 'gameplay/general/health-bar');
     healthBar = new FlxBar(0, 0, RIGHT_TO_LEFT, Std.int(healthBarBG.width - 8), Std.int(healthBarBG.height - 8), null, 0, 2);
-    scoreText = new FlxBitmapText(0, 0, '', funkin.assets.Assets.getAngelBitmapFont(funkin.assets.Paths.image('ui/fonts/vcr-bmp')));
+    scoreText = new FlxBitmapText(0, 0, '', Assets.getAngelBitmapFont(Paths.image('ui/fonts/vcr-bmp')));
 
     // Combo & Pop Up
     comboPopUps = new PopUpStuff(noteStyle);
@@ -975,6 +1105,12 @@ class PlayState extends MusicBeatSubState
     // Do this last to prevent beatHit from being called before create() is done.
     super.create();
 
+    // Dispatch a create event just for notekinds and song events.
+    var event:ScriptEvent = ScriptEvent.get(CREATE);
+    if (songEvents != null && songEvents.length > 0) SongEventRegistry.callEvent(event);
+    NoteKindManager.callEvent(event);
+    event.finish();
+
     leftWatermarkText.cameras = [camHUD];
     rightWatermarkText.cameras = [camHUD];
 
@@ -1039,7 +1175,11 @@ class PlayState extends MusicBeatSubState
       else
       {
         if (currentStage != null) this.remove(currentStage);
-        FlxG.switchState(() -> new MainMenuState());
+        Transition.switchState(() -> new MainMenuState(), {
+          assetQuery: MainMenuState.queryAssets,
+          transition: Sticker(Constants.DEFAULT_STICKER_PACK),
+          shouldStopMusic: true
+        });
       }
       return false;
     }
@@ -1131,10 +1271,14 @@ class PlayState extends MusicBeatSubState
       // Delete all notes and reset the arrays.
       regenNoteData(startTimestamp);
 
+      // Make sure ScrollSpeed tweens don't persist between restarts.
+      cancelScrollSpeedTweens();
+
       // Reset camera zooming
       cameraBopIntensity = Constants.DEFAULT_BOP_INTENSITY;
       hudCameraZoomIntensity = (cameraBopIntensity - 1.0) * 2.0;
       cameraZoomRate = Constants.DEFAULT_ZOOM_RATE;
+      cameraZoomRateOffset = Constants.DEFAULT_ZOOM_OFFSET;
 
       health = Constants.HEALTH_STARTING;
       songScore = 0.0;
@@ -1195,7 +1339,7 @@ class PlayState extends MusicBeatSubState
       // The previous method where it "guessed" the song position based on the elapsed time had some flaws
       // Sometimes the songPosition would exceed the music length causing issues in other places
       // And it was frame dependent which we don't like!!
-      if (FlxG.sound.music.playing)
+      if (FlxG.sound.music?.playing ?? false)
       {
         final audioDiff:Float = Math.round(Math.abs(FlxG.sound.music.time - (Conductor.instance.songPosition - Conductor.instance.combinedOffset)));
         if (audioDiff <= CONDUCTOR_DRIFT_THRESHOLD)
@@ -1246,12 +1390,16 @@ class PlayState extends MusicBeatSubState
     var decayRate:Float = 0.95;
     var dt:Float = elapsed * 60; //
 
-    if (subState == null && cameraZoomRate > 0.0)
+    var isTransitionOverlay:Bool = Std.isOfType(subState, flixel.addons.transition.Transition);
+    if (subState == null || isTransitionOverlay)
     {
-      cameraBopMultiplier = FlxMath.lerp(1.0, cameraBopMultiplier, Math.pow(decayRate, dt));
+      if (!debugUnbindCameraZoom) FlxG.camera.zoom = currentCameraZoom * cameraBopMultiplier;
 
-      var zoomPlusBop = currentCameraZoom * cameraBopMultiplier;
-      if (!debugUnbindCameraZoom) FlxG.camera.zoom = zoomPlusBop;
+      if (cameraZoomRate > 0.0)
+      {
+        cameraBopMultiplier = FlxMath.lerp(1.0, cameraBopMultiplier, Math.pow(decayRate, dt));
+        if (!debugUnbindCameraZoom) FlxG.camera.zoom = currentCameraZoom * cameraBopMultiplier;
+      }
 
       camHUD.zoom = FlxMath.lerp(defaultHUDCameraZoom, camHUD.zoom, Math.pow(decayRate, dt));
     }
@@ -1432,7 +1580,11 @@ class PlayState extends MusicBeatSubState
           if (!isSubState && event.gitaroo)
           {
             if (currentStage != null) this.remove(currentStage);
-            FlxG.switchState(() -> new GitarooPause(lastParams));
+            Transition.switchState(() -> new GitarooPause(lastParams), {
+              assetQuery: GitarooPause.queryAssets,
+              transition: None,
+              shouldPurgeCache: false,
+            });
           }
           else
           {
@@ -1469,12 +1621,12 @@ class PlayState extends MusicBeatSubState
       mode: mode,
       lostFocus: lostFocus
     }, onPause);
-    FlxTransitionableState.skipNextTransIn = true;
-    FlxTransitionableState.skipNextTransOut = true;
     pauseSubState.camera = cam;
     persistentUpdate = false;
     shouldSubstatePause = true;
     openSubState(pauseSubState);
+    FlxTransitionableState.skipNextTransIn = true;
+    FlxTransitionableState.skipNextTransOut = true;
   }
 
   function moveToGameOver():Void
@@ -1597,34 +1749,34 @@ class PlayState extends MusicBeatSubState
           FlxG.sound.music.pause();
           musicPausedBySubState = true;
         }
+      }
 
-        // Pause any sounds that are playing and keep track of them.
-        // Vocals are also paused here but are not included as they are handled separately.
-        if (Std.isOfType(subState, PauseSubState))
+      // Pause any sounds that are playing and keep track of them.
+      // Vocals are also paused here but are not included as they are handled separately.
+      if (Std.isOfType(subState, PauseSubState))
+      {
+        FlxG.sound.list.forEachAlive(function(sound:FlxSound)
         {
-          FlxG.sound.list.forEachAlive(function(sound:FlxSound)
+          if (!sound.active || sound == FlxG.sound.music) return;
+          // In case it's a scheduled sound
+          if (Std.isOfType(sound, FunkinSound))
           {
-            if (!sound.active || sound == FlxG.sound.music) return;
-            // In case it's a scheduled sound
-            if (Std.isOfType(sound, FunkinSound))
-            {
-              var funkinSound:FunkinSound = cast sound;
-              if (funkinSound != null && !funkinSound.isPlaying) return;
-            }
-            if (!sound.playing && sound.time >= 0) return;
-            sound.pause();
-            soundsPausedBySubState.add(sound);
-          });
+            var funkinSound:FunkinSound = cast sound;
+            if (funkinSound != null && !funkinSound.isPlaying) return;
+          }
+          if (!sound.playing && sound.time >= 0) return;
+          sound.pause();
+          soundsPausedBySubState.add(sound);
+        });
 
-          vocals?.forEach(function(voice:FunkinSound)
-          {
-            soundsPausedBySubState.remove(voice);
-          });
-        }
-        else
+        vocals?.forEach(function(voice:FunkinSound)
         {
-          vocals?.pause();
-        }
+          soundsPausedBySubState.remove(voice);
+        });
+      }
+      else
+      {
+        vocals?.pause();
       }
 
       if (!vwooshTimer.finished) vwooshTimer.active = false;
@@ -1845,7 +1997,10 @@ class PlayState extends MusicBeatSubState
           lastParams.targetSong = SongRegistry.instance.fetchEntry(currentSong.id, {
             variation: currentVariation
           });
-          LoadingState.loadPlayState(lastParams);
+          funkin.ui.transition.Transition.openPlayState(lastParams, {
+            transition: LoadingScreen(None, None),
+            shouldStopMusic: true,
+          });
         }
       },
       targetState: null
@@ -1908,7 +2063,7 @@ class PlayState extends MusicBeatSubState
       var correctSync:Float = Math.min(FlxG.sound.music.length, Math.max(0, Conductor.instance.songPosition - Conductor.instance.combinedOffset));
       var playerVoicesError:Float = 0;
       var opponentVoicesError:Float = 0;
-      if (vocals != null && vocals.playing)
+      if (vocals != null && (vocals.playing || vocals.time < 0))
       {
         @:nullSafety(Off)
         @:privateAccess // todo: maybe make the groups public :thinking:
@@ -2157,7 +2312,7 @@ class PlayState extends MusicBeatSubState
     //
     // GIRLFRIEND
     //
-    var girlfriend:Null<BaseCharacter> = CharacterDataParser.fetchCharacter(currentCharacterData.girlfriend);
+    var girlfriend:Null<BaseCharacter> = CharacterRegistry.instance.fetchEntry(currentCharacterData.girlfriend);
 
     if (girlfriend != null)
     {
@@ -2175,7 +2330,7 @@ class PlayState extends MusicBeatSubState
     //
     // DAD
     //
-    var dad:Null<BaseCharacter> = CharacterDataParser.fetchCharacter(currentCharacterData.opponent);
+    var dad:Null<BaseCharacter> = CharacterRegistry.instance.fetchEntry(currentCharacterData.opponent);
 
     if (dad != null)
     {
@@ -2210,7 +2365,7 @@ class PlayState extends MusicBeatSubState
     //
     // BOYFRIEND
     //
-    var boyfriend:Null<BaseCharacter> = CharacterDataParser.fetchCharacter(currentCharacterData.player);
+    var boyfriend:Null<BaseCharacter> = CharacterRegistry.instance.fetchEntry(currentCharacterData.player);
 
     if (boyfriend != null)
     {
@@ -2703,8 +2858,6 @@ class PlayState extends MusicBeatSubState
       if (mayPauseGame) endSong(skipEndingTransition);
     };
 
-    FlxG.sound.music.pause();
-    FlxG.sound.music.time = startTimestamp;
     FlxG.sound.music.pitch = playbackRate;
 
     if (Preferences.subtitles)
@@ -2725,19 +2878,14 @@ class PlayState extends MusicBeatSubState
     {
       add(vocals);
 
-      vocals.time = startTimestamp - Conductor.instance.instrumentalOffset;
       vocals.pitch = playbackRate;
       vocals.playerVolume = playerVocalsVolume;
       vocals.opponentVolume = opponentVocalsVolume;
 
-      // trace('STARTING SONG AT:');
-      // trace('${FlxG.sound.music.time}');
-      // trace('${vocals.time}');
-
-      vocals.play();
+      vocals.play(true, startTimestamp);
     }
 
-    FlxG.sound.music.play();
+    FlxG.sound.music.play(true, startTimestamp);
 
     #if FEATURE_DISCORD_RPC
     // Updating Discord Rich Presence.
@@ -3056,7 +3204,7 @@ class PlayState extends MusicBeatSubState
                 if (vocals.legacyVoiceSystem && !vocals.legacyVoiceUsesPlayer) vocals.opponentVolume = 0;
                 vocals.playerVolume = 0;
               }
-              FunkinSound.playOnce(Paths.soundRandom('gameplay/general/sounds/miss-note-', 1, 3), FlxG.random.float(0.5, 0.6));
+              FunkinSound.playOnce(Paths.soundRandom('gameplay/general/sounds/miss-note-', 1, 3).toFlxSoundAsset(), FlxG.random.float(0.5, 0.6));
             }
             event.finish();
           }
@@ -3210,6 +3358,10 @@ class PlayState extends MusicBeatSubState
       case 'shit':
         healthChange = Constants.HEALTH_SHIT_BONUS;
         isComboBreak = Constants.JUDGEMENT_SHIT_COMBO_BREAK;
+      default:
+        // We missed!
+        // Stop processing this hit immediately.
+        return;
     }
 
     // Send the note hit event.
@@ -3278,7 +3430,7 @@ class PlayState extends MusicBeatSubState
     {
       var tempVocals:Bool = currentStage != null && currentStage.getBoyfriend()?.tempVocals;
       if (vocals != null && !tempVocals) vocals.playerVolume = 0;
-      FunkinSound.playOnce(Paths.soundRandom('gameplay/general/sounds/miss-note-', 1, 3), FlxG.random.float(0.5, 0.6));
+      FunkinSound.playOnce(Paths.soundRandom('gameplay/general/sounds/miss-note-', 1, 3).toFlxSoundAsset(), FlxG.random.float(0.5, 0.6));
     }
   }
 
@@ -3324,7 +3476,7 @@ class PlayState extends MusicBeatSubState
     {
       var tempVocals:Bool = currentStage != null && currentStage.getBoyfriend()?.tempVocals;
       if (vocals != null && !tempVocals) vocals.playerVolume = 0;
-      FunkinSound.playOnce(Paths.soundRandom('gameplay/general/sounds/miss-note-', 1, 3), FlxG.random.float(0.1, 0.2));
+      FunkinSound.playOnce(Paths.soundRandom('gameplay/general/sounds/miss-note-', 1, 3).toFlxSoundAsset(), FlxG.random.float(0.1, 0.2));
     }
 
     event.finish();
@@ -3347,12 +3499,17 @@ class PlayState extends MusicBeatSubState
       var bf:String = currentStage?.getBoyfriend()?.characterId ?? '';
       var gf:String = currentStage?.getGirlfriend()?.characterId ?? '';
       var dad:String = currentStage?.getDad()?.characterId ?? '';
-      FlxG.switchState(() -> new StageEditorState({
+
+      var stageEditorParams = {
         targetStageId: currentStageId,
         targetBfChar: bf,
         targetGfChar: gf,
         targetDadChar: dad
-      }));
+      };
+      Transition.switchState(() -> new StageEditorState(stageEditorParams), {
+        assetQuery: Transition.NO_ASSETS, // StageEditorState.queryAssets.bind(_, stageEditorParams),
+        transition: BlackScreen(None, Fade(South))
+      });
     }
     #end
 
@@ -3371,12 +3528,17 @@ class PlayState extends MusicBeatSubState
       else
       {
         if (currentStage != null) this.remove(currentStage);
-        FlxG.switchState(() -> new ChartEditorState({
+        var chartEditorParams = {
           loadFromTemplate: currentSong.id,
           targetSongDifficulty: currentDifficulty,
           targetSongVariation: currentVariation,
           targetSongPosition: Conductor.instance.songPosition
-        }));
+        };
+
+        Transition.switchState(() -> new ChartEditorState(chartEditorParams), {
+          assetQuery: ChartEditorState.queryAssets.bind(_, chartEditorParams),
+          transition: BlackScreen(None, Fade(South))
+        });
       }
     }
     #end
@@ -3398,12 +3560,17 @@ class PlayState extends MusicBeatSubState
       else
       {
         if (currentStage != null) this.remove(currentStage);
-        FlxG.switchState(() -> new CameraEditorState({
+        var cameraEditorParams = {
           loadFromTemplate: currentSong.id,
           targetSongDifficulty: currentDifficulty,
           targetSongVariation: currentVariation,
           targetSongPosition: Conductor.instance.songPosition
-        }));
+        };
+
+        Transition.switchState(() -> new CameraEditorState(cameraEditorParams), {
+          assetQuery: Transition.NO_ASSETS, // CameraEditorState.queryAssets.bind(_, params),
+          transition: BlackScreen(None, Fade(South))
+        });
       }
     }
     #end
@@ -3763,7 +3930,56 @@ class PlayState extends MusicBeatSubState
         var targetVariation:String = currentVariation;
         if (!targetSong.hasDifficulty(PlayStatePlaylist.campaignDifficulty, currentVariation))
         {
-          targetVariation = targetSong.getFirstValidVariation(PlayStatePlaylist.campaignDifficulty) ?? Constants.DEFAULT_VARIATION;
+          var blackBG:FunkinSprite = new FunkinSprite(-FlxG.width * FlxG.camera.zoom, -FlxG.height * FlxG.camera.zoom);
+          blackBG.makeSolidColor(FlxG.width * 3, FlxG.height * 3, FlxColor.BLACK);
+          blackBG.scrollFactor.set();
+          add(blackBG);
+          camHUD.visible = false;
+          isInCutscene = true;
+
+          FunkinSound.playOnce(Paths.sound('gameplay/stages/mallEvil/sounds/lights-off').toFlxSoundAsset(), function()
+          {
+            // no camFollow so it centers on horror tree
+            var targetSong:Song = SongRegistry.instance.fetchEntry(targetSongId) ?? throw 'Could not find a song with the ID $targetSongId';
+            var targetVariation:String = currentVariation;
+            if (!targetSong.hasDifficulty(PlayStatePlaylist.campaignDifficulty, currentVariation))
+            {
+              targetVariation = targetSong.getFirstValidVariation(PlayStatePlaylist.campaignDifficulty) ?? Constants.DEFAULT_VARIATION;
+            }
+            if (currentStage != null) this.remove(currentStage);
+            funkin.ui.transition.Transition.openPlayState({
+              targetSong: targetSong,
+              targetDifficulty: PlayStatePlaylist.campaignDifficulty,
+              targetVariation: targetVariation,
+              practiceMode: isPracticeMode,
+              cameraFollowPoint: cameraFollowPoint.getPosition(),
+            }, {
+              transition: LoadingScreen(None, None),
+              shouldStopMusic: true,
+            });
+          });
+        }
+        else
+        {
+          var targetSong:Song = SongRegistry.instance.fetchEntry(targetSongId, {
+            variation: currentVariation
+          }) ?? throw 'Could not find a song with ID $targetSongId';
+          var targetVariation:String = currentVariation;
+          if (!targetSong.hasDifficulty(PlayStatePlaylist.campaignDifficulty, currentVariation))
+          {
+            targetVariation = targetSong.getFirstValidVariation(PlayStatePlaylist.campaignDifficulty) ?? Constants.DEFAULT_VARIATION;
+          }
+          if (currentStage != null) this.remove(currentStage);
+          funkin.ui.transition.Transition.openPlayState({
+            targetSong: targetSong,
+            targetDifficulty: PlayStatePlaylist.campaignDifficulty,
+            targetVariation: targetVariation,
+            practiceMode: isPracticeMode,
+            cameraFollowPoint: cameraFollowPoint.getPosition(),
+          }, {
+            transition: LoadingScreen(None, None),
+            shouldStopMusic: true,
+          });
         }
         if (currentStage != null) this.remove(currentStage);
         LoadingState.loadPlayState({
@@ -3863,6 +4079,16 @@ class PlayState extends MusicBeatSubState
 
     FlxTween.globalManager.clear();
     FlxTimer.globalManager.clear();
+
+    // Remove listeners.
+    PreciseInputManager.instance.onInputPressed.remove(onKeyPress);
+    PreciseInputManager.instance.onInputReleased.remove(onKeyRelease);
+
+    #if FEATURE_TOUCH_CONTROLS
+    VideoCutscene.onVideoEnded.remove(tweenPauseButtonIn);
+    VideoCutscene.onVideoResumed.remove(tweenPauseButtonIn);
+    VideoCutscene.onVideoRestarted.remove(tweenPauseButtonIn);
+    #end
 
     // Remove reference to stage and remove sprites from it to save memory.
     if (currentStage != null)
@@ -3974,7 +4200,7 @@ class PlayState extends MusicBeatSubState
     camHUD.alpha = 1;
 
     var talliesToUse:Tallies = PlayStatePlaylist.isStoryMode ? Highscore.talliesLevel : Highscore.tallies;
-    var res:ResultState = new ResultState({
+    var params = {
       storyMode: PlayStatePlaylist.isStoryMode,
       songId: currentChart.song.id,
       difficultyId: currentDifficulty,
@@ -3999,9 +4225,12 @@ class PlayState extends MusicBeatSubState
       isNewHighscore: isNewHighscore,
       isPracticeMode: isPracticeMode,
       isBotPlayMode: isBotPlayMode,
-    });
+    };
     this.persistentDraw = false;
-    openSubState(res);
+    Transition.openSubState(() -> new ResultState(params), {
+      transition: BlackScreen(None, None),
+      assetQuery: ResultState.queryAssets.bind(_, params)
+    });
   }
 
   /**
